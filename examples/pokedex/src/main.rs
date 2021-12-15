@@ -12,7 +12,8 @@ enum Pokedex {
     Loading,
     Loaded {
         pokemon: Pokemon,
-        search: button::State,
+        look_up: button::State,
+        random_search: button::State,
     },
     Errored {
         error: Error,
@@ -23,7 +24,8 @@ enum Pokedex {
 #[derive(Debug, Clone)]
 enum Message {
     PokemonFound(Result<Pokemon, Error>),
-    Search,
+    LookUp(u16),
+    RandomSearch,
 }
 
 impl Application for Pokedex {
@@ -34,7 +36,7 @@ impl Application for Pokedex {
     fn new(_flags: ()) -> (Pokedex, Command<Message>) {
         (
             Pokedex::Loading,
-            Command::perform(Pokemon::search(), Message::PokemonFound),
+            Command::perform(Pokemon::search(None), Message::PokemonFound),
         )
     }
 
@@ -57,7 +59,8 @@ impl Application for Pokedex {
             Message::PokemonFound(Ok(pokemon)) => {
                 *self = Pokedex::Loaded {
                     pokemon,
-                    search: button::State::new(),
+                    look_up: button::State::new(),
+                    random_search: button::State::new(),
                 };
 
                 Command::none()
@@ -70,12 +73,20 @@ impl Application for Pokedex {
 
                 Command::none()
             }
-            Message::Search => match self {
+            Message::LookUp(number) => match self {
                 Pokedex::Loading => Command::none(),
                 _ => {
                     *self = Pokedex::Loading;
 
-                    Command::perform(Pokemon::search(), Message::PokemonFound)
+                    Command::perform(Pokemon::search(Some(number)), Message::PokemonFound)
+                }
+            },
+            Message::RandomSearch => match self {
+                Pokedex::Loading => Command::none(),
+                _ => {
+                    *self = Pokedex::Loading;
+
+                    Command::perform(Pokemon::search(None), Message::PokemonFound)
                 }
             },
         }
@@ -86,19 +97,22 @@ impl Application for Pokedex {
             Pokedex::Loading => Column::new()
                 .width(Length::Shrink)
                 .push(Text::new("Searching for Pokémon...").size(40)),
-            Pokedex::Loaded { pokemon, search } => Column::new()
+            Pokedex::Loaded { pokemon, look_up, random_search } => Column::new()
                 .max_width(500)
                 .spacing(20)
-                .align_items(Align::End)
+                // .align_items(Align::End)
                 .push(pokemon.view())
                 .push(
-                    button(search, "Keep searching!").on_press(Message::Search),
+                Row::new()
+                    .spacing(20)
+                    .push(button(look_up, "Look up").on_press(Message::LookUp(1)))
+                    .push(button(random_search, "Random!").on_press(Message::RandomSearch))
                 ),
             Pokedex::Errored { try_again, .. } => Column::new()
                 .spacing(20)
                 .align_items(Align::End)
                 .push(Text::new("Whoops! Something went wrong...").size(40))
-                .push(button(try_again, "Try again").on_press(Message::Search)),
+                .push(button(try_again, "Try again").on_press(Message::RandomSearch)),
         };
 
         Container::new(content)
@@ -153,7 +167,7 @@ impl Pokemon {
             .into()
     }
 
-    async fn search() -> Result<Pokemon, Error> {
+    async fn search(number: Option<u16>) -> Result<Pokemon, Error> {
         use rand::Rng;
         use serde::Deserialize;
 
@@ -175,11 +189,12 @@ impl Pokemon {
             name: String,
         }
 
-        let id = {
-            let mut rng = rand::rngs::OsRng::default();
+        let id = number.filter(|&n| n > 0 && n < Pokemon::TOTAL)
+            .unwrap_or_else(|| {
+                let mut rng = rand::rngs::OsRng::default();
 
-            rng.gen_range(0, Pokemon::TOTAL)
-        };
+                rng.gen_range(1, Pokemon::TOTAL)
+            });
 
         let fetch_entry = async {
             let url =

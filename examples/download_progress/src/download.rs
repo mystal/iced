@@ -49,7 +49,7 @@ where
                             Ok(response) => {
                                 if let Some(total) = response.content_length() {
                                     Some((
-                                        (id, Progress::Started),
+                                        (id, Progress::Started(total)),
                                         State::Downloading {
                                             response,
                                             total,
@@ -76,11 +76,8 @@ where
                         Ok(Some(chunk)) => {
                             let downloaded = downloaded + chunk.len() as u64;
 
-                            let percentage =
-                                (downloaded as f32 / total as f32) * 100.0;
-
                             Some((
-                                (id, Progress::Advanced(percentage)),
+                                (id, Progress::Advanced(downloaded)),
                                 State::Downloading {
                                     response,
                                     total,
@@ -111,8 +108,10 @@ where
 
 #[derive(Debug, Clone)]
 pub enum Progress {
-    Started,
-    Advanced(f32),
+    /// Contains the size of the body in bytes.
+    Started(u64),
+    /// Contains how many bytes have been downloaded.
+    Advanced(u64),
     Finished,
     Errored,
 }

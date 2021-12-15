@@ -21,6 +21,7 @@ pub enum Message {
     Add,
     Download(usize),
     DownloadProgressed((usize, download::Progress)),
+    CancelDownload(usize),
 }
 
 impl Application for Example {
@@ -66,6 +67,11 @@ impl Application for Example {
                     download.progress(progress);
                 }
             }
+            Message::CancelDownload(id) => {
+                if let Some(download) = self.downloads.get_mut(id) {
+                    download.cancel();
+                }
+            }
         };
 
         Command::none()
@@ -108,7 +114,11 @@ struct Download {
 #[derive(Debug)]
 enum State {
     Idle { button: button::State },
-    Downloading { progress: f32 },
+    Downloading {
+        size: u64,
+        downloaded: u64,
+        button: button::State,
+    },
     Finished { button: button::State },
     Errored { button: button::State },
 }
@@ -128,7 +138,11 @@ impl Download {
             State::Idle { .. }
             | State::Finished { .. }
             | State::Errored { .. } => {
-                self.state = State::Downloading { progress: 0.0 };
+                self.state = State::Downloading {
+                    size: 0,
+                    downloaded: 0,
+                    button: button::State::new(),
+                };
             }
             _ => {}
         }
@@ -136,12 +150,12 @@ impl Download {
 
     pub fn progress(&mut self, new_progress: download::Progress) {
         match &mut self.state {
-            State::Downloading { progress } => match new_progress {
-                download::Progress::Started => {
-                    *progress = 0.0;
+            State::Downloading { size, downloaded, .. } => match new_progress {
+                download::Progress::Started(size_bytes) => {
+                    *size = size_bytes;
                 }
-                download::Progress::Advanced(percentage) => {
-                    *progress = percentage;
+                download::Progress::Advanced(download_bytes) => {
+                    *downloaded = download_bytes;
                 }
                 download::Progress::Finished => {
                     self.state = State::Finished {
@@ -153,6 +167,15 @@ impl Download {
                         button: button::State::new(),
                     };
                 }
+            },
+            _ => {}
+        }
+    }
+
+    pub fn cancel(&mut self) {
+        match self.state {
+            State::Downloading { .. } => self.state = State::Idle {
+                button: button::State::new(),
             },
             _ => {}
         }
@@ -171,7 +194,7 @@ impl Download {
     pub fn view(&mut self) -> Element<Message> {
         let current_progress = match &self.state {
             State::Idle { .. } => 0.0,
-            State::Downloading { progress } => *progress,
+            State::Downloading { size, downloaded, .. } => *downloaded as f32 / *size as f32,
             State::Finished { .. } => 100.0,
             State::Errored { .. } => 0.0,
         };
@@ -193,10 +216,15 @@ impl Download {
                         .on_press(Message::Download(self.id)),
                 )
                 .into(),
-            State::Downloading { .. } => {
-                Text::new(format!("Downloading... {:.2}%", current_progress))
-                    .into()
-            }
+            State::Downloading { button, .. } => Column::new()
+                .spacing(10)
+                .align_items(Align::Center)
+                .push(Text::new(format!("Downloading... {:.2}%", current_progress)))
+                .push(
+                    Button::new(button, Text::new("Cancel"))
+                        .on_press(Message::CancelDownload(self.id))
+                )
+                .into(),
             State::Errored { button } => Column::new()
                 .spacing(10)
                 .align_items(Align::Center)
